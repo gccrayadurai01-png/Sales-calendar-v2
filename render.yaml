@@ -1,15 +1,15 @@
-# Render.com Blueprint: https://render.com/docs/blueprint-spec
-# After deploy, set HUBSPOT_ACCESS_TOKEN in the service Environment tab.
-# For persistent SQLite across deploys, add a Disk (paid) and set SQLITE_DB_PATH to the mount path.
-# Vite lives in frontend dependencies so it installs even when NODE_ENV=production.
+# Render.com Blueprint
+# After first deploy, set HUBSPOT_ACCESS_TOKEN in the Environment tab.
 
 services:
   - type: web
     name: sales-calendar
     runtime: node
     plan: free
-    buildCommand: npm install --prefix backend && cd frontend && npm install && npm run build
-    startCommand: npm start
+    buildCommand: bash build.sh
+    startCommand: node backend/server.js
     envVars:
       - key: NODE_ENV
         value: production
+      - key: TURSO_DATABASE_URL
+        value: file:data/sales-calendar.db
