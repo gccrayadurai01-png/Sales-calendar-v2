@@ -1,25 +1,24 @@
-const fs = require('fs');
-const path = require('path');
-const Database = require('better-sqlite3');
+const { createClient } = require('@libsql/client');
 const { initSchema } = require('./schema');
 
-const DB_PATH = process.env.SQLITE_DB_PATH || path.join(__dirname, '..', 'data', 'sales-calendar.db');
+const DB_URL = process.env.TURSO_DATABASE_URL || 'file:backend/data/sales-calendar.db';
+const DB_TOKEN = process.env.TURSO_AUTH_TOKEN;
 
-let db;
+let clientPromise = null;
 
-function getDb() {
-  if (!db) {
-    const dir = path.dirname(DB_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    initSchema(db);
-    console.log(`✅ SQLite database ready at ${DB_PATH}`);
+async function getDb() {
+  if (!clientPromise) {
+    clientPromise = (async () => {
+      const client = createClient({
+        url: DB_URL,
+        authToken: DB_TOKEN || undefined,
+      });
+      await initSchema(client);
+      console.log(`✅ Database ready: ${DB_URL}`);
+      return client;
+    })();
   }
-  return db;
+  return clientPromise;
 }
 
 module.exports = { getDb };

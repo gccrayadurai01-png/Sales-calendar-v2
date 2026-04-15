@@ -1,6 +1,4 @@
-// Database schema — all CREATE TABLE statements
-
-const SCHEMA_SQL = `
+const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS sync_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   last_sync_started_at TEXT,
@@ -67,6 +65,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   hs_lead_status TEXT,
   lead_source TEXT,
   lead_category TEXT,
+  mql_type TEXT,
   hubspot_owner_id TEXT,
   num_associated_deals INTEGER DEFAULT 0,
   num_contacted_notes INTEGER DEFAULT 0,
@@ -86,18 +85,18 @@ CREATE INDEX IF NOT EXISTS idx_deal_stage_dates_deal ON deal_stage_dates(deal_id
 INSERT OR IGNORE INTO sync_meta (id) VALUES (1);
 `;
 
-function initSchema(db) {
-  db.exec(SCHEMA_SQL);
-  // Migration: add num_contacted_notes and num_notes columns if missing
-  try {
-    db.exec('ALTER TABLE contacts ADD COLUMN num_contacted_notes INTEGER DEFAULT 0');
-  } catch { /* column already exists */ }
-  try {
-    db.exec('ALTER TABLE contacts ADD COLUMN num_notes INTEGER DEFAULT 0');
-  } catch { /* column already exists */ }
-  try {
-    db.exec('ALTER TABLE contacts ADD COLUMN mql_type TEXT');
-  } catch { /* column already exists */ }
+async function initSchema(client) {
+  await client.executeMultiple(CREATE_TABLES_SQL);
+
+  // Migrations: add columns if missing (safe to fail if already exists)
+  const migrations = [
+    'ALTER TABLE contacts ADD COLUMN num_contacted_notes INTEGER DEFAULT 0',
+    'ALTER TABLE contacts ADD COLUMN num_notes INTEGER DEFAULT 0',
+    'ALTER TABLE contacts ADD COLUMN mql_type TEXT',
+  ];
+  for (const sql of migrations) {
+    try { await client.execute(sql); } catch { /* already exists */ }
+  }
 }
 
 module.exports = { initSchema };

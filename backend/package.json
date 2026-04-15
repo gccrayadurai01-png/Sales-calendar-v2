@@ -6,8 +6,8 @@
     "dev": "node server.js"
   },
   "dependencies": {
+    "@libsql/client": "^0.14.0",
     "axios": "^1.6.7",
-    "better-sqlite3": "^12.8.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.1",

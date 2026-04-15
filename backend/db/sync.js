@@ -6,7 +6,6 @@ function hsHeaders(token) {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
-// Retry on 429 rate-limit with exponential backoff
 async function withRetry(fn, retries = 5) {
   for (let i = 0; i < retries; i++) {
     try {
@@ -15,7 +14,7 @@ async function withRetry(fn, retries = 5) {
       const status = err.response?.status;
       if (status === 429 && i < retries - 1) {
         const wait = (i + 1) * 2000;
-        console.log(`  ⏳ Rate limited, waiting ${wait}ms before retry ${i + 2}/${retries}...`);
+        console.log(`  ⏳ Rate limited, waiting ${wait}ms...`);
         await new Promise((r) => setTimeout(r, wait));
       } else {
         throw err;
@@ -39,18 +38,16 @@ async function syncOwners(db, token) {
     after = res.data.paging?.next?.after;
   } while (after);
 
-  const upsert = db.prepare(`
-    INSERT OR REPLACE INTO owners (id, email, firstName, lastName, userId, createdAt, updatedAt, archived, teams_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const tx = db.transaction((rows) => {
-    db.prepare('DELETE FROM owners').run();
-    for (const o of rows) {
-      upsert.run(o.id, o.email, o.firstName, o.lastName, o.userId,
-        o.createdAt, o.updatedAt, o.archived ? 1 : 0, JSON.stringify(o.teams || []));
-    }
-  });
-  tx(owners);
+  const stmts = [
+    { sql: 'DELETE FROM owners', args: [] },
+    ...owners.map((o) => ({
+      sql: `INSERT OR REPLACE INTO owners (id, email, firstName, lastName, userId, createdAt, updatedAt, archived, teams_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [o.id, o.email, o.firstName, o.lastName, o.userId,
+        o.createdAt, o.updatedAt, o.archived ? 1 : 0, JSON.stringify(o.teams || [])],
+    })),
+  ];
+  await db.batch(stmts, 'write');
   console.log(`  ✓ ${owners.length} owners synced`);
   return owners.length;
 }
@@ -73,17 +70,15 @@ async function syncStages(db, token) {
     }))
   );
 
-  const upsert = db.prepare(`
-    INSERT OR REPLACE INTO stages (id, label, displayOrder, pipelineId, pipelineLabel, probability)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  const tx = db.transaction((rows) => {
-    db.prepare('DELETE FROM stages').run();
-    for (const s of rows) {
-      upsert.run(s.id, s.label, s.displayOrder, s.pipelineId, s.pipelineLabel, s.probability);
-    }
-  });
-  tx(stages);
+  const stmts = [
+    { sql: 'DELETE FROM stages', args: [] },
+    ...stages.map((s) => ({
+      sql: `INSERT OR REPLACE INTO stages (id, label, displayOrder, pipelineId, pipelineLabel, probability)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+      args: [s.id, s.label, s.displayOrder, s.pipelineId, s.pipelineLabel, s.probability],
+    })),
+  ];
+  await db.batch(stmts, 'write');
   console.log(`  ✓ ${stages.length} stages synced`);
   return stages.length;
 }
@@ -92,9 +87,8 @@ async function syncStages(db, token) {
 async function syncDeals(db, token) {
   console.log('  📥 Syncing deals...');
 
-  // Get stage IDs for hs_v2_date_entered_* properties
-  const stageRows = db.prepare('SELECT id FROM stages').all();
-  const stageIds = stageRows.map((r) => r.id);
+  const stagesResult = await db.execute('SELECT id FROM stages');
+  const stageIds = stagesResult.rows.map((r) => r.id);
   const dateEnteredProps = stageIds.map((id) => `hs_v2_date_entered_${id}`);
 
   const baseProps = [
@@ -102,7 +96,6 @@ async function syncDeals(db, token) {
     'hubspot_owner_id', 'dealstage', 'pipeline', 'dealtype',
   ];
 
-  // Fetch ALL deals chunked by quarter to avoid 10k limit
   const now = new Date();
   const ranges = generateQuarterlyRanges(now.getFullYear() - 3, now.getFullYear() + 1);
 
@@ -122,7 +115,6 @@ async function syncDeals(db, token) {
         limit: 100,
       };
       if (after) body.after = after;
-
       const res = await withRetry(() =>
         axios.post(`${HUBSPOT_BASE}/crm/v3/objects/deals/search`, body, { headers: hsHeaders(token) })
       );
@@ -136,36 +128,40 @@ async function syncDeals(db, token) {
     }
   }
 
-  const upsertDeal = db.prepare(`
-    INSERT OR REPLACE INTO deals (id, dealname, amount, closedate, createdate, hubspot_owner_id, dealstage, pipeline, dealtype, createdAt, updatedAt, archived)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const upsertStageDate = db.prepare(`
-    INSERT OR REPLACE INTO deal_stage_dates (deal_id, stage_id, date_entered) VALUES (?, ?, ?)
-  `);
-
-  const tx = db.transaction((rows) => {
-    db.prepare('DELETE FROM deals').run();
-    db.prepare('DELETE FROM deal_stage_dates').run();
-    for (const d of rows) {
+  // Use interactive transaction for large datasets
+  const txn = await db.transaction('write');
+  try {
+    await txn.execute('DELETE FROM deals');
+    await txn.execute('DELETE FROM deal_stage_dates');
+    for (const d of deals) {
       const p = d.properties;
-      upsertDeal.run(d.id, p.dealname, parseFloat(p.amount) || 0,
-        p.closedate, p.createdate, p.hubspot_owner_id, p.dealstage,
-        p.pipeline, p.dealtype, d.createdAt, d.updatedAt, d.archived ? 1 : 0);
-
-      // Store hs_v2_date_entered_* values
+      await txn.execute({
+        sql: `INSERT OR REPLACE INTO deals (id, dealname, amount, closedate, createdate, hubspot_owner_id, dealstage, pipeline, dealtype, createdAt, updatedAt, archived)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [d.id, p.dealname, parseFloat(p.amount) || 0, p.closedate, p.createdate,
+          p.hubspot_owner_id, p.dealstage, p.pipeline, p.dealtype,
+          d.createdAt, d.updatedAt, d.archived ? 1 : 0],
+      });
       for (const sid of stageIds) {
         const val = p[`hs_v2_date_entered_${sid}`];
-        if (val) upsertStageDate.run(d.id, sid, val);
+        if (val) {
+          await txn.execute({
+            sql: 'INSERT OR REPLACE INTO deal_stage_dates (deal_id, stage_id, date_entered) VALUES (?, ?, ?)',
+            args: [d.id, sid, val],
+          });
+        }
       }
     }
-  });
-  tx(deals);
+    await txn.commit();
+  } catch (err) {
+    await txn.rollback();
+    throw err;
+  }
+
   console.log(`  ✓ ${deals.length} deals synced`);
   return deals.length;
 }
 
-// Helper: generate quarterly date ranges for deals
 function generateQuarterlyRanges(startYear, endYear) {
   const ranges = [];
   for (let y = startYear; y <= endYear; y++) {
@@ -182,13 +178,12 @@ function generateQuarterlyRanges(startYear, endYear) {
   return ranges;
 }
 
-// Helper: generate monthly date ranges to stay under HubSpot's 10k search limit
 function generateMonthlyRanges(startYear, endYear) {
   const ranges = [];
   for (let y = startYear; y <= endYear; y++) {
     for (let m = 0; m < 12; m++) {
       const start = new Date(y, m, 1);
-      const end = new Date(y, m + 1, 0, 23, 59, 59, 999); // last ms of month
+      const end = new Date(y, m + 1, 0, 23, 59, 59, 999);
       ranges.push({
         startMs: start.getTime().toString(),
         endMs: end.getTime().toString(),
@@ -201,7 +196,7 @@ function generateMonthlyRanges(startYear, endYear) {
 
 // ── Sync Contacts ──
 async function syncContacts(db, token) {
-  console.log('  📥 Syncing contacts (chunked by month to avoid 10k limit)...');
+  console.log('  📥 Syncing contacts...');
 
   const properties = [
     'firstname', 'lastname', 'email', 'company', 'createdate',
@@ -211,7 +206,6 @@ async function syncContacts(db, token) {
 
   const now = new Date();
   const ranges = generateMonthlyRanges(now.getFullYear() - 3, now.getFullYear());
-
   let allContacts = [];
 
   for (const range of ranges) {
@@ -229,7 +223,6 @@ async function syncContacts(db, token) {
         limit: 100,
       };
       if (after) body.after = after;
-
       const res = await withRetry(() =>
         axios.post(`${HUBSPOT_BASE}/crm/v3/objects/contacts/search`, body, { headers: hsHeaders(token) })
       );
@@ -243,24 +236,30 @@ async function syncContacts(db, token) {
     }
   }
 
-  const upsert = db.prepare(`
-    INSERT OR REPLACE INTO contacts (id, firstname, lastname, email, company, createdate, lifecyclestage,
-      hs_lead_status, lead_source, lead_category, mql_type, hubspot_owner_id, num_associated_deals, num_contacted_notes, num_notes, createdAt, updatedAt, archived)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const tx = db.transaction((rows) => {
-    db.prepare('DELETE FROM contacts').run();
-    for (const c of rows) {
+  // Use interactive transaction for large datasets
+  const txn = await db.transaction('write');
+  try {
+    await txn.execute('DELETE FROM contacts');
+    for (const c of allContacts) {
       const p = c.properties;
-      upsert.run(c.id, p.firstname, p.lastname, p.email, p.company, p.createdate,
-        p.lifecyclestage, p.hs_lead_status, p.lead_source, p.lead_category, p.mql_type,
-        p.hubspot_owner_id, parseInt(p.num_associated_deals) || 0,
-        parseInt(p.num_contacted_notes) || 0, parseInt(p.num_notes) || 0,
-        c.createdAt, c.updatedAt, c.archived ? 1 : 0);
+      await txn.execute({
+        sql: `INSERT OR REPLACE INTO contacts (id, firstname, lastname, email, company, createdate, lifecyclestage,
+              hs_lead_status, lead_source, lead_category, mql_type, hubspot_owner_id,
+              num_associated_deals, num_contacted_notes, num_notes, createdAt, updatedAt, archived)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [c.id, p.firstname, p.lastname, p.email, p.company, p.createdate,
+          p.lifecyclestage, p.hs_lead_status, p.lead_source, p.lead_category, p.mql_type,
+          p.hubspot_owner_id, parseInt(p.num_associated_deals) || 0,
+          parseInt(p.num_contacted_notes) || 0, parseInt(p.num_notes) || 0,
+          c.createdAt, c.updatedAt, c.archived ? 1 : 0],
+      });
     }
-  });
-  tx(allContacts);
+    await txn.commit();
+  } catch (err) {
+    await txn.rollback();
+    throw err;
+  }
+
   console.log(`  ✓ ${allContacts.length} contacts synced`);
   return allContacts.length;
 }
@@ -270,8 +269,10 @@ async function syncAll(db, token) {
   console.log('\n🔄 Starting full HubSpot sync...');
   const startedAt = new Date().toISOString();
 
-  db.prepare(`UPDATE sync_meta SET last_sync_started_at = ?, last_sync_status = 'running', last_sync_error = NULL WHERE id = 1`)
-    .run(startedAt);
+  await db.execute({
+    sql: `UPDATE sync_meta SET last_sync_started_at = ?, last_sync_status = 'running', last_sync_error = NULL WHERE id = 1`,
+    args: [startedAt],
+  });
 
   try {
     const ownersCount = await syncOwners(db, token);
@@ -280,18 +281,22 @@ async function syncAll(db, token) {
     const contactsCount = await syncContacts(db, token);
 
     const completedAt = new Date().toISOString();
-    db.prepare(`UPDATE sync_meta SET last_sync_completed_at = ?, last_sync_status = 'success',
-      owners_count = ?, stages_count = ?, deals_count = ?, contacts_count = ? WHERE id = 1`)
-      .run(completedAt, ownersCount, stagesCount, dealsCount, contactsCount);
+    await db.execute({
+      sql: `UPDATE sync_meta SET last_sync_completed_at = ?, last_sync_status = 'success',
+            owners_count = ?, stages_count = ?, deals_count = ?, contacts_count = ? WHERE id = 1`,
+      args: [completedAt, ownersCount, stagesCount, dealsCount, contactsCount],
+    });
 
     const elapsed = ((new Date(completedAt) - new Date(startedAt)) / 1000).toFixed(1);
-    console.log(`\n✅ Sync complete in ${elapsed}s — ${dealsCount} deals, ${contactsCount} contacts, ${ownersCount} owners, ${stagesCount} stages\n`);
+    console.log(`\n✅ Sync complete in ${elapsed}s — ${dealsCount} deals, ${contactsCount} contacts\n`);
     return { status: 'success', dealsCount, contactsCount, ownersCount, stagesCount };
   } catch (err) {
     const errMsg = err.response?.data?.message || err.message;
     console.error(`\n❌ Sync failed: ${errMsg}\n`);
-    db.prepare(`UPDATE sync_meta SET last_sync_status = 'error', last_sync_error = ? WHERE id = 1`)
-      .run(errMsg);
+    await db.execute({
+      sql: `UPDATE sync_meta SET last_sync_status = 'error', last_sync_error = ? WHERE id = 1`,
+      args: [errMsg],
+    });
     return { status: 'error', error: errMsg };
   }
 }

@@ -1,8 +1,8 @@
-// Query helpers that return data in the same shape as HubSpot API responses
+// Query helpers — all async, using @libsql/client
 
-function getOwners(db) {
-  const rows = db.prepare('SELECT * FROM owners').all();
-  return rows.map((r) => ({
+async function getOwners(db) {
+  const result = await db.execute('SELECT * FROM owners');
+  return result.rows.map((r) => ({
     id: r.id,
     email: r.email,
     firstName: r.firstName,
@@ -15,20 +15,22 @@ function getOwners(db) {
   }));
 }
 
-function getStages(db) {
-  return db.prepare('SELECT * FROM stages ORDER BY displayOrder').all();
+async function getStages(db) {
+  const result = await db.execute('SELECT * FROM stages ORDER BY displayOrder');
+  return result.rows;
 }
 
 // Deals by closedate range (Calendar view)
-function getDealsByCloseDate(db, startDate, endDate) {
+async function getDealsByCloseDate(db, startDate, endDate) {
   const startISO = new Date(startDate).toISOString();
   const endISO = new Date(endDate + 'T23:59:59.999Z').toISOString();
 
-  const rows = db.prepare(`
-    SELECT * FROM deals WHERE closedate >= ? AND closedate <= ?
-  `).all(startISO, endISO);
+  const result = await db.execute({
+    sql: 'SELECT * FROM deals WHERE closedate >= ? AND closedate <= ?',
+    args: [startISO, endISO],
+  });
 
-  return rows.map((r) => ({
+  return result.rows.map((r) => ({
     id: r.id,
     properties: {
       dealname: r.dealname,
@@ -45,27 +47,28 @@ function getDealsByCloseDate(db, startDate, endDate) {
 }
 
 // Deals by createdate range (Deal Flow view) — includes hs_v2_date_entered_* props
-function getDealsByCreateDate(db, startDate, endDate) {
+async function getDealsByCreateDate(db, startDate, endDate) {
   const startISO = new Date(startDate).toISOString();
   const endISO = new Date(endDate + 'T23:59:59.999Z').toISOString();
 
-  const rows = db.prepare(`
-    SELECT * FROM deals WHERE createdate >= ? AND createdate <= ?
-  `).all(startISO, endISO);
-
-  // Fetch all stage dates for these deals in one query
+  const result = await db.execute({
+    sql: 'SELECT * FROM deals WHERE createdate >= ? AND createdate <= ?',
+    args: [startISO, endISO],
+  });
+  const rows = result.rows;
   const dealIds = rows.map((r) => r.id);
   let stageDatesMap = {};
 
   if (dealIds.length > 0) {
-    // Batch in chunks of 500 to avoid SQLite variable limit
-    for (let i = 0; i < dealIds.length; i += 500) {
-      const chunk = dealIds.slice(i, i + 500);
+    // Batch in chunks of 200 to stay well within parameter limits
+    for (let i = 0; i < dealIds.length; i += 200) {
+      const chunk = dealIds.slice(i, i + 200);
       const placeholders = chunk.map(() => '?').join(',');
-      const sdRows = db.prepare(`
-        SELECT * FROM deal_stage_dates WHERE deal_id IN (${placeholders})
-      `).all(...chunk);
-      for (const sd of sdRows) {
+      const sdResult = await db.execute({
+        sql: `SELECT * FROM deal_stage_dates WHERE deal_id IN (${placeholders})`,
+        args: chunk,
+      });
+      for (const sd of sdResult.rows) {
         if (!stageDatesMap[sd.deal_id]) stageDatesMap[sd.deal_id] = {};
         stageDatesMap[sd.deal_id][`hs_v2_date_entered_${sd.stage_id}`] = sd.date_entered;
       }
@@ -92,20 +95,20 @@ function getDealsByCreateDate(db, startDate, endDate) {
 }
 
 // Contacts by createdate range (Contacts view)
-// If startDate/endDate are null, returns all contacts (all-time)
-function getContactsByCreateDate(db, startDate, endDate) {
-  let rows;
+async function getContactsByCreateDate(db, startDate, endDate) {
+  let result;
   if (startDate && endDate) {
     const startISO = new Date(startDate).toISOString();
     const endISO = new Date(endDate + 'T23:59:59.999Z').toISOString();
-    rows = db.prepare(`
-      SELECT * FROM contacts WHERE createdate >= ? AND createdate <= ?
-    `).all(startISO, endISO);
+    result = await db.execute({
+      sql: 'SELECT * FROM contacts WHERE createdate >= ? AND createdate <= ?',
+      args: [startISO, endISO],
+    });
   } else {
-    rows = db.prepare(`SELECT * FROM contacts`).all();
+    result = await db.execute('SELECT * FROM contacts');
   }
 
-  return rows.map((r) => ({
+  return result.rows.map((r) => ({
     id: r.id,
     properties: {
       firstname: r.firstname,
@@ -132,8 +135,9 @@ function getContactsByCreateDate(db, startDate, endDate) {
   }));
 }
 
-function getSyncStatus(db) {
-  return db.prepare('SELECT * FROM sync_meta WHERE id = 1').get();
+async function getSyncStatus(db) {
+  const result = await db.execute('SELECT * FROM sync_meta WHERE id = 1');
+  return result.rows[0] || null;
 }
 
 module.exports = {
