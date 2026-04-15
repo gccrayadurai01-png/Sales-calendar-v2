@@ -156,13 +156,11 @@ async function syncDealsIncremental(db, token, lastSyncAt) {
 // ── Shared upsert for deals (chunked batch, fast) ──
 async function upsertDeals(db, deals, stageIds, deleteFirst) {
   if (deleteFirst) {
-    await db.batch([
-      { sql: 'DELETE FROM deals', args: [] },
-      { sql: 'DELETE FROM deal_stage_dates', args: [] },
-    ], 'write');
+    await db.execute({ sql: 'DELETE FROM deals', args: [] });
+    await db.execute({ sql: 'DELETE FROM deal_stage_dates', args: [] });
   }
 
-  const CHUNK = 200;
+  const CHUNK = 50;
   for (let i = 0; i < deals.length; i += CHUNK) {
     const stmts = [];
     for (const d of deals.slice(i, i + CHUNK)) {
@@ -176,8 +174,13 @@ async function upsertDeals(db, deals, stageIds, deleteFirst) {
         if (val) stmts.push({ sql: 'INSERT OR REPLACE INTO deal_stage_dates (deal_id, stage_id, date_entered) VALUES (?, ?, ?)', args: [d.id, sid, val] });
       }
     }
-    await db.batch(stmts, 'write');
-    if (i % 1000 === 0 && i > 0) console.log(`    deals: ${i}/${deals.length} inserted...`);
+    try {
+      await db.batch(stmts, 'write');
+    } catch (batchErr) {
+      console.error(`  ❌ Deals batch error at chunk ${i}: ${batchErr.message}`);
+      throw batchErr;
+    }
+    if (i % 500 === 0 && i > 0) console.log(`    deals: ${i}/${deals.length} inserted...`);
   }
 }
 
@@ -229,10 +232,10 @@ async function syncContactsIncremental(db, token, lastSyncAt) {
 // ── Shared upsert for contacts (chunked batch, fast) ──
 async function upsertContacts(db, contacts, deleteFirst) {
   if (deleteFirst) {
-    await db.execute('DELETE FROM contacts');
+    await db.execute({ sql: 'DELETE FROM contacts', args: [] });
   }
 
-  const CHUNK = 200;
+  const CHUNK = 50;
   for (let i = 0; i < contacts.length; i += CHUNK) {
     const stmts = contacts.slice(i, i + CHUNK).map((c) => {
       const p = c.properties;
@@ -241,8 +244,13 @@ async function upsertContacts(db, contacts, deleteFirst) {
         args: [c.id, p.firstname, p.lastname, p.email, p.company, p.createdate, p.lifecyclestage, p.hs_lead_status, p.lead_source, p.lead_category, p.mql_type, p.hubspot_owner_id, parseInt(p.num_associated_deals) || 0, parseInt(p.num_contacted_notes) || 0, parseInt(p.num_notes) || 0, c.createdAt, c.updatedAt, c.archived ? 1 : 0],
       };
     });
-    await db.batch(stmts, 'write');
-    if (i % 5000 === 0 && i > 0) console.log(`    contacts: ${i}/${contacts.length} inserted...`);
+    try {
+      await db.batch(stmts, 'write');
+    } catch (batchErr) {
+      console.error(`  ❌ Contacts batch error at chunk ${i}: ${batchErr.message}`);
+      throw batchErr;
+    }
+    if (i % 1000 === 0 && i > 0) console.log(`    contacts: ${i}/${contacts.length} inserted...`);
   }
 }
 

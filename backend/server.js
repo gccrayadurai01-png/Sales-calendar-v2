@@ -75,7 +75,7 @@ app.get('/api/auth/me', (req, res) => {
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return next();
   if (!req.path.startsWith('/api')) return next();
-  if (['/api/health', '/api/auth/login', '/api/auth/logout', '/api/auth/me'].includes(req.path)) {
+  if (['/api/health', '/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/debug/mql', '/api/debug/counts', '/api/debug/reset-sync'].includes(req.path)) {
     return next();
   }
   if (!isAuthenticated(req)) {
@@ -382,6 +382,42 @@ app.get('/api/debug/mql', async (req, res) => {
       withMqlLifecycle: Number(withLifecycle.rows[0].c),
       sampleMqlContacts: sample.rows,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/debug/counts', async (req, res) => {
+  try {
+    const db = await getDb();
+    const deals = await db.execute('SELECT COUNT(*) as c FROM deals');
+    const contacts = await db.execute('SELECT COUNT(*) as c FROM contacts');
+    const owners = await db.execute('SELECT COUNT(*) as c FROM owners');
+    const stages = await db.execute('SELECT COUNT(*) as c FROM stages');
+    const meta = await getSyncStatus(db);
+    res.json({
+      deals: Number(deals.rows[0].c),
+      contacts: Number(contacts.rows[0].c),
+      owners: Number(owners.rows[0].c),
+      stages: Number(stages.rows[0].c),
+      syncStatus: meta?.last_sync_status || 'never',
+      lastSyncStarted: meta?.last_sync_started_at || null,
+      lastSyncCompleted: meta?.last_sync_completed_at || null,
+      lastSyncError: meta?.last_sync_error || null,
+      inProgressFlag: syncInProgress,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reset a stuck "running" sync state
+app.post('/api/debug/reset-sync', async (req, res) => {
+  try {
+    const db = await getDb();
+    syncInProgress = false;
+    await db.execute({ sql: `UPDATE sync_meta SET last_sync_status = 'error', last_sync_error = 'manually reset' WHERE id = 1`, args: [] });
+    res.json({ ok: true, message: 'Sync state reset to error. You can now POST /api/sync to retry.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
