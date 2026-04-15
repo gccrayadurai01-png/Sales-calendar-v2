@@ -330,7 +330,7 @@ app.get('/api/goals-tracker/pipeline-deals', async (req, res) => {
 
 // ──────── Sync Endpoints ────────
 
-// POST /api/sync — awaits full sync completion (works on Vercel)
+// POST /api/sync — incremental by default, pass ?force=true for full re-sync
 app.post('/api/sync', async (req, res) => {
   if (!TOKEN) return res.status(500).json({ error: 'HUBSPOT_ACCESS_TOKEN not configured' });
   if (syncInProgress) return res.json({ status: 'already_running' });
@@ -338,7 +338,8 @@ app.post('/api/sync', async (req, res) => {
   try {
     const db = await getDb();
     syncInProgress = true;
-    const result = await syncAll(db, TOKEN);
+    const force = req.query.force === 'true' || req.body?.force === true;
+    const result = await syncAll(db, TOKEN, { force });
     res.json(result);
   } catch (err) {
     res.status(500).json({ status: 'error', error: err.message });
@@ -406,12 +407,22 @@ if (process.env.VERCEL !== '1') {
       const db = await getDb();
       const meta = await getSyncStatus(db);
       if (!meta?.last_sync_completed_at && TOKEN) {
-        console.log('   No previous sync — starting initial sync...');
+        console.log('   No previous sync — starting initial full sync...');
         syncInProgress = true;
         syncAll(db, TOKEN).finally(() => { syncInProgress = false; });
       } else if (meta?.last_sync_completed_at) {
         console.log(`   Last sync: ${meta.last_sync_completed_at}`);
         console.log(`   Cached: ${meta.deals_count} deals, ${meta.contacts_count} contacts\n`);
+      }
+
+      // Auto incremental sync every 15 minutes
+      if (TOKEN) {
+        setInterval(async () => {
+          if (syncInProgress) return;
+          console.log('⏰ 15-min auto sync starting...');
+          syncInProgress = true;
+          syncAll(db, TOKEN).finally(() => { syncInProgress = false; });
+        }, 15 * 60 * 1000);
       }
     } catch (err) {
       console.error('   DB init error:', err.message);
