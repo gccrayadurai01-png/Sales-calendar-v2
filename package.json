@@ -3,11 +3,11 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "cd backend && node server.js",
-    "client": "cd frontend && npm run dev",
-    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
-    "build": "cd frontend && npm run build",
-    "start": "cd backend && node server.js"
+    "server": "node backend/server.js",
+    "client": "npm run dev --prefix frontend",
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend --include=dev",
+    "build": "npm run build --prefix frontend",
+    "start": "node backend/server.js"
   },
   "engines": {
     "node": ">=18"

@@ -1,6 +1,7 @@
 # Render.com Blueprint: https://render.com/docs/blueprint-spec
 # After deploy, set HUBSPOT_ACCESS_TOKEN in the service Environment tab.
 # For persistent SQLite across deploys, add a Disk (paid) and set SQLITE_DB_PATH to the mount path.
+# install:all uses --include=dev for frontend so Vite is installed when NODE_ENV=production.
 
 services:
   - type: web
