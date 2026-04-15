@@ -1,0 +1,270 @@
+/* ── Goals Tracker ── */
+
+.gt-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 20px;
+  color: #64748b;
+  font-size: 15px;
+}
+
+.gt-error {
+  margin: 32px auto;
+  max-width: 600px;
+  padding: 16px 20px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 14px;
+}
+
+.gt-container {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+
+/* ── Controls ── */
+.gt-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.gt-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gt-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gt-select {
+  padding: 8px 32px 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  background: white;
+  color: #1e293b;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2364748b' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.gt-select:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+/* ── Table ── */
+.gt-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: white;
+}
+
+.gt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.gt-th {
+  padding: 10px 12px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 12px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.gt-th-rep {
+  text-align: left;
+  min-width: 150px;
+  position: sticky;
+  left: 0;
+  background: #f8fafc;
+  z-index: 2;
+}
+
+.gt-th-metric-col {
+  border-left: 1px solid #e2e8f0;
+}
+
+/* Sub-header row (Goal / Actual) */
+.gt-subheader .gt-th-sub {
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #f8fafc;
+  border-bottom: 2px solid #e2e8f0;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.gt-th-sub-goal {
+  border-left: 1px solid #e2e8f0;
+}
+
+/* ── Rows ── */
+.gt-row .gt-td {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.gt-td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.gt-td-rep {
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  position: sticky;
+  left: 0;
+  background: white;
+  z-index: 1;
+}
+
+/* ── Rep name + team badge ── */
+.gt-rep-name {
+  margin-right: 6px;
+}
+
+.gt-team-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.gt-team-badge--smb { background: #EEF2FF; color: #4338CA; }
+.gt-team-badge--am  { background: #F0FDF4; color: #15803D; }
+.gt-team-badge--ent { background: #FFF7ED; color: #C2410C; }
+
+.gt-td-goal {
+  text-align: center;
+  color: #94a3b8;
+  font-weight: 500;
+  font-size: 12px;
+  border-left: 1px solid #f1f5f9;
+}
+
+.gt-td-actual {
+  text-align: center;
+  min-width: 100px;
+}
+
+.gt-td-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.gt-td-clickable:hover {
+  background: #f0f4ff;
+}
+
+.gt-td-clickable .gt-actual-value {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.gt-actual-cell {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+}
+
+.gt-actual-value {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.gt-actual-pct {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ── Progress bars ── */
+.gt-bar-track {
+  width: 100%;
+  height: 4px;
+  background: #f1f5f9;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.gt-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.gt-green { color: #059669; }
+.gt-yellow { color: #d97706; }
+.gt-red { color: #dc2626; }
+
+.gt-bar-fill.gt-green { background: #10b981; }
+.gt-bar-fill.gt-yellow { background: #f59e0b; }
+.gt-bar-fill.gt-red { background: #ef4444; }
+
+/* ── Team Total Row ── */
+.gt-row-total {
+  background: #f8fafc;
+}
+
+.gt-row-total .gt-td {
+  border-top: 2px solid #e2e8f0;
+  border-bottom: none;
+}
+
+.gt-td-total-label {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 14px;
+  background: #f8fafc !important;
+}
+
+.gt-td-total {
+  background: #f8fafc;
+}
+
+.gt-td-total .gt-actual-value {
+  font-size: 15px;
+}
+
+/* ── Conversion column ── */
+.gt-th-conversion {
+  background: #f8fafc;
+  border-left: 2px solid #e2e8f0;
+}
