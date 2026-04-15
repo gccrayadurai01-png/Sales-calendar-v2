@@ -153,27 +153,32 @@ async function syncDealsIncremental(db, token, lastSyncAt) {
   return deals.length;
 }
 
-// ── Shared upsert for deals ──
+// ── Shared upsert for deals (chunked batch, fast) ──
 async function upsertDeals(db, deals, stageIds, deleteFirst) {
-  const txn = await db.transaction('write');
-  try {
-    if (deleteFirst) {
-      await txn.execute('DELETE FROM deals');
-      await txn.execute('DELETE FROM deal_stage_dates');
-    }
-    for (const d of deals) {
+  if (deleteFirst) {
+    await db.batch([
+      { sql: 'DELETE FROM deals', args: [] },
+      { sql: 'DELETE FROM deal_stage_dates', args: [] },
+    ], 'write');
+  }
+
+  const CHUNK = 200;
+  for (let i = 0; i < deals.length; i += CHUNK) {
+    const stmts = [];
+    for (const d of deals.slice(i, i + CHUNK)) {
       const p = d.properties;
-      await txn.execute({
+      stmts.push({
         sql: `INSERT OR REPLACE INTO deals (id, dealname, amount, closedate, createdate, hubspot_owner_id, dealstage, pipeline, dealtype, createdAt, updatedAt, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [d.id, p.dealname, parseFloat(p.amount) || 0, p.closedate, p.createdate, p.hubspot_owner_id, p.dealstage, p.pipeline, p.dealtype, d.createdAt, d.updatedAt, d.archived ? 1 : 0],
       });
       for (const sid of stageIds) {
         const val = p[`hs_v2_date_entered_${sid}`];
-        if (val) await txn.execute({ sql: 'INSERT OR REPLACE INTO deal_stage_dates (deal_id, stage_id, date_entered) VALUES (?, ?, ?)', args: [d.id, sid, val] });
+        if (val) stmts.push({ sql: 'INSERT OR REPLACE INTO deal_stage_dates (deal_id, stage_id, date_entered) VALUES (?, ?, ?)', args: [d.id, sid, val] });
       }
     }
-    await txn.commit();
-  } catch (err) { await txn.rollback(); throw err; }
+    await db.batch(stmts, 'write');
+    if (i % 1000 === 0 && i > 0) console.log(`    deals: ${i}/${deals.length} inserted...`);
+  }
 }
 
 // ── FULL: Sync all contacts (first sync only) ──
@@ -221,20 +226,24 @@ async function syncContactsIncremental(db, token, lastSyncAt) {
   return contacts.length;
 }
 
-// ── Shared upsert for contacts ──
+// ── Shared upsert for contacts (chunked batch, fast) ──
 async function upsertContacts(db, contacts, deleteFirst) {
-  const txn = await db.transaction('write');
-  try {
-    if (deleteFirst) await txn.execute('DELETE FROM contacts');
-    for (const c of contacts) {
+  if (deleteFirst) {
+    await db.execute('DELETE FROM contacts');
+  }
+
+  const CHUNK = 200;
+  for (let i = 0; i < contacts.length; i += CHUNK) {
+    const stmts = contacts.slice(i, i + CHUNK).map((c) => {
       const p = c.properties;
-      await txn.execute({
+      return {
         sql: `INSERT OR REPLACE INTO contacts (id, firstname, lastname, email, company, createdate, lifecyclestage, hs_lead_status, lead_source, lead_category, mql_type, hubspot_owner_id, num_associated_deals, num_contacted_notes, num_notes, createdAt, updatedAt, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [c.id, p.firstname, p.lastname, p.email, p.company, p.createdate, p.lifecyclestage, p.hs_lead_status, p.lead_source, p.lead_category, p.mql_type, p.hubspot_owner_id, parseInt(p.num_associated_deals) || 0, parseInt(p.num_contacted_notes) || 0, parseInt(p.num_notes) || 0, c.createdAt, c.updatedAt, c.archived ? 1 : 0],
-      });
-    }
-    await txn.commit();
-  } catch (err) { await txn.rollback(); throw err; }
+      };
+    });
+    await db.batch(stmts, 'write');
+    if (i % 5000 === 0 && i > 0) console.log(`    contacts: ${i}/${contacts.length} inserted...`);
+  }
 }
 
 // ── Full Sync Orchestrator ──
