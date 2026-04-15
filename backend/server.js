@@ -497,20 +497,25 @@ if (process.env.NODE_ENV === 'production') {
 
 // ──────── Start Server ────────
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`\n\u2705 Sales Calendar backend running on http://localhost:${PORT}`);
-  console.log(`   HubSpot token: ${TOKEN ? '\u2713 configured' : '\u2717 MISSING \u2014 add to backend/.env'}`);
-  console.log(`   Database: \u2713 SQLite ready\n`);
+// Only call app.listen() in non-serverless environments (e.g. local dev, Render)
+if (process.env.VERCEL !== '1') {
+  const PORT = process.env.PORT || 3001;
+  app.listen(PORT, () => {
+    console.log(`\n\u2705 Sales Calendar backend running on http://localhost:${PORT}`);
+    console.log(`   HubSpot token: ${TOKEN ? '\u2713 configured' : '\u2717 MISSING \u2014 add to backend/.env'}`);
+    console.log(`   Database: \u2713 SQLite ready\n`);
 
-  // Auto-sync on startup if DB is empty (never synced)
-  const meta = getSyncStatus(db);
-  if (!meta?.last_sync_completed_at && TOKEN) {
-    console.log('   No previous sync found \u2014 starting initial sync...');
-    syncInProgress = true;
-    syncAll(db, TOKEN).finally(() => { syncInProgress = false; });
-  } else if (meta?.last_sync_completed_at) {
-    console.log(`   Last sync: ${meta.last_sync_completed_at}`);
-    console.log(`   Cached: ${meta.deals_count} deals, ${meta.contacts_count} contacts, ${meta.owners_count} owners\n`);
-  }
-});
+    // Auto-sync on startup if DB is empty (never synced)
+    const meta = getSyncStatus(db);
+    if (!meta?.last_sync_completed_at && TOKEN) {
+      console.log('   No previous sync found \u2014 starting initial sync...');
+      syncInProgress = true;
+      syncAll(db, TOKEN).finally(() => { syncInProgress = false; });
+    } else if (meta?.last_sync_completed_at) {
+      console.log(`   Last sync: ${meta.last_sync_completed_at}`);
+      console.log(`   Cached: ${meta.deals_count} deals, ${meta.contacts_count} contacts, ${meta.owners_count} owners\n`);
+    }
+  });
+}
+
+module.exports = app;
