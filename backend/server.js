@@ -368,6 +368,25 @@ app.get('/api/sync/status', async (req, res) => {
   }
 });
 
+// Temporary debug endpoint — check if mql_type is populated
+app.get('/api/debug/mql', async (req, res) => {
+  try {
+    const db = await getDb();
+    const total = await db.execute('SELECT COUNT(*) as c FROM contacts');
+    const withMql = await db.execute("SELECT COUNT(*) as c FROM contacts WHERE mql_type IS NOT NULL AND mql_type != ''");
+    const withLifecycle = await db.execute("SELECT COUNT(*) as c FROM contacts WHERE lifecyclestage = 'marketingqualifiedlead'");
+    const sample = await db.execute("SELECT id, firstname, lastname, mql_type, lifecyclestage, hubspot_owner_id, createdate FROM contacts WHERE mql_type IS NOT NULL LIMIT 5");
+    res.json({
+      totalContacts: Number(total.rows[0].c),
+      withMqlType: Number(withMql.rows[0].c),
+      withMqlLifecycle: Number(withLifecycle.rows[0].c),
+      sampleMqlContacts: sample.rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     const db = await getDb();
