@@ -1,6 +1,8 @@
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const { getDb } = require('./db');
@@ -13,7 +15,8 @@ const { getPipelineVelocity } = require('./db/pipelineVelocity');
 const { REP_GOALS, GOALS_TEAMS, getWeekRanges, getMonthRanges, deriveWeeklyGoals, deriveMonthlyGoals } = require('./goals-config');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
+app.use(cookieParser());
 app.use(express.json());
 
 const TOKEN = process.env.HUBSPOT_ACCESS_TOKEN;
@@ -28,6 +31,68 @@ const db = getDb();
 
 // Track if a sync is currently in progress
 let syncInProgress = false;
+
+// ──────── Auth (hardcoded demo — change via env in production) ────────
+const AUTH_COOKIE = 'sc_session';
+const AUTH_USER = process.env.AUTH_USERNAME || 'admin';
+const AUTH_PASS = process.env.AUTH_PASSWORD || 'admin@123';
+
+function authToken() {
+  const secret = process.env.AUTH_SECRET || 'sales-calendar-auth-dev';
+  return crypto.createHmac('sha256', secret).update('sales-calendar-session-v1').digest('hex');
+}
+
+function isAuthenticated(req) {
+  const v = req.cookies && req.cookies[AUTH_COOKIE];
+  if (!v || typeof v !== 'string') return false;
+  const t = authToken();
+  try {
+    return v.length === t.length && crypto.timingSafeEqual(Buffer.from(v), Buffer.from(t));
+  } catch {
+    return false;
+  }
+}
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (username === AUTH_USER && password === AUTH_PASS) {
+    res.cookie(AUTH_COOKIE, authToken(), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    return res.json({ ok: true });
+  }
+  return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie(AUTH_COOKIE, { path: '/' });
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  res.json({ authenticated: isAuthenticated(req) });
+});
+
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') return next();
+  if (!req.path.startsWith('/api')) return next();
+  if (
+    req.path === '/api/health' ||
+    req.path === '/api/auth/login' ||
+    req.path === '/api/auth/logout' ||
+    req.path === '/api/auth/me'
+  ) {
+    return next();
+  }
+  if (!isAuthenticated(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+});
 
 // ──────── API Endpoints (all served from SQLite) ────────
 

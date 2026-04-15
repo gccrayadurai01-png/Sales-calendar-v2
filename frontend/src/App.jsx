@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useAuth } from './auth/AuthContext.jsx';
 import Calendar from './components/Calendar';
 import Filters from './components/Filters';
 import Legend from './components/Legend';
@@ -39,6 +40,7 @@ function getStageColor(probability) {
 }
 
 export default function App() {
+  const { logout } = useAuth();
   const today = new Date();
   const [activeView, setActiveView] = useState('calendar');
   const [year, setYear] = useState(today.getFullYear());
@@ -220,6 +222,9 @@ export default function App() {
               onTeamChange={handleTeamChange}
             />
           )}
+          <button type="button" className="logout-btn" onClick={() => logout()}>
+            Sign out
+          </button>
         </div>
       </header>
 
